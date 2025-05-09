@@ -3,7 +3,7 @@ import axios from 'axios';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import QRCode from 'qrcode';
-import logo from '../assets/logo.png'; // Make sure this path is correct
+import logo from '../assets/logo.png'; 
 
 const EmployeeDashboard = () => {
   const [employee, setEmployee] = useState(null);
