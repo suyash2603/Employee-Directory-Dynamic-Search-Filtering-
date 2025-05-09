@@ -18,7 +18,7 @@ const generateEmployeeId = async () => {
 exports.getEmployees = async (req, res) => {
   const { status } = req.query;
   let query = `
-    SELECT e.*, d.name AS department_name, r.role_name AS role
+    SELECT e.*, d.name AS department_name, r.role_name AS role, DATE_FORMAT(e.hire_date, '%Y-%m-%d') AS hire_date, e.location
     FROM employees e
     JOIN departments d ON e.department_id = d.id
     LEFT JOIN employee_roles er ON e.id = er.employee_id
@@ -45,7 +45,7 @@ exports.getEmployeeById = async (req, res) => {
   const { id } = req.params;
   try {
     const [rows] = await db.query(`
-      SELECT e.*, d.name AS department_name, r.role_name AS role
+      SELECT e.*, d.name AS department_name, r.role_name AS role, e.hire_date, e.location
       FROM employees e
       JOIN departments d ON e.department_id = d.id
       LEFT JOIN employee_roles er ON e.id = er.employee_id
@@ -63,77 +63,82 @@ exports.getEmployeeById = async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch employee' });
   }
 };
-
 // ADD employee
 exports.addEmployee = async (req, res) => {
-    const {
-      name, email, password, phone, bio, role, department_id,
-      salaryAmount, salaryMonth, salaryYear, status = 'active'
-    } = req.body;
-  
-    const profile_pic = req.file?.filename ?? null;
-  
-    const connection = await db.getConnection();
-  
-    try {
-      await connection.beginTransaction();
-  
-      const employeeId = await generateEmployeeId();
-  
-      const hashedPassword = await bcrypt.hash(password, 10);
-  
-      await connection.execute(
-        `INSERT INTO employees (id, name, email, password, phone, bio, department_id, profile_pic, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          employeeId,
-          name,
-          email,
-          hashedPassword,
-          phone ?? null,
-          bio ?? null,
-          department_id,
-          profile_pic,
-          status
-        ]
-      );
-      const [roleResult]=await connection.execute(
-        'SELECT id FROM roles WHERE role_name=?',
-        [role]
-      );
-      if (!roleResult.length) {
-        throw new Error(`Invalid role: ${role}`);
-      }
-  
-      const roleId = roleResult[0].id;
-      await connection.execute(
-        'INSERT INTO employee_roles (employee_id, role_id) VALUES (?, ?)',
-        [employeeId, roleId]
-      );
-  
-      await connection.execute(
-        `INSERT INTO salary_slips (employee_id, amount, month, year)
-         VALUES (?, ?, ?, ?)`,
-        [
-          employeeId,
-          salaryAmount ?? null,
-          salaryMonth ?? null,
-          salaryYear ?? null
-        ]
-      );
-  
-      await connection.commit();
-  
-      res.status(201).json({ message: 'Employee and salary added successfully', id: employeeId });
-  
-    } catch (err) {
-      await connection.rollback();
-      console.error("Error adding employee and salary:", err);
-      res.status(500).json({ error: 'Failed to add employee and salary' });
-    } finally {
-      connection.release();
+  const {
+    name, email, password, phone, bio, role, department_id,
+    hire_date, location,
+    salaryAmount, salaryMonth, salaryYear, status = 'active'
+  } = req.body;
+
+  const profile_pic = req.file?.filename ?? null;
+
+  const connection = await db.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const employeeId = await generateEmployeeId();
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    await connection.execute(
+      `INSERT INTO employees 
+        (id, name, email, password, phone, bio, hire_date, location, department_id, profile_pic, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        employeeId,
+        name,
+        email,
+        hashedPassword,
+        phone ?? null,
+        bio ?? null,
+        hire_date ?? null,
+        location ?? null,
+        department_id,
+        profile_pic,
+        status
+      ]
+    );
+
+    const [roleResult] = await connection.execute(
+      'SELECT id FROM roles WHERE role_name = ?',
+      [role]
+    );
+
+    if (!roleResult.length) {
+      throw new Error(`Invalid role: ${role}`);
     }
-  };
+
+    const roleId = roleResult[0].id;
+    await connection.execute(
+      'INSERT INTO employee_roles (employee_id, role_id) VALUES (?, ?)',
+      [employeeId, roleId]
+    );
+
+    await connection.execute(
+      `INSERT INTO salary_slips (employee_id, amount, month, year)
+       VALUES (?, ?, ?, ?)`,
+      [
+        employeeId,
+        salaryAmount ?? null,
+        salaryMonth ?? null,
+        salaryYear ?? null
+      ]
+    );
+
+    await connection.commit();
+
+    res.status(201).json({ message: 'Employee and salary added successfully', id: employeeId });
+
+  } catch (err) {
+    await connection.rollback();
+    console.error("Error adding employee and salary:", err);
+    res.status(500).json({ error: 'Failed to add employee and salary' });
+  } finally {
+    connection.release();
+  }
+};
+
   
 // UPDATE employee
 exports.updateEmployee = async (req, res) => {
@@ -144,6 +149,8 @@ exports.updateEmployee = async (req, res) => {
     phone,
     role,
     department_id,
+    hire_date,
+    location,
     salaryAmount,
     salaryMonth,
     salaryYear,
@@ -157,10 +164,10 @@ exports.updateEmployee = async (req, res) => {
     // Start transaction
     await conn.beginTransaction();
 
-    // Update employee table
+    // Update employee table (including hire_date and location)
     const updateEmployeeQuery = `
       UPDATE employees
-      SET name = ?, email = ?, phone = ?, department_id = ?, role = ?
+      SET name = ?, email = ?, phone = ?, department_id = ?, hire_date = ?, location = ?
       WHERE id = ?
     `;
     const employeeValues = [
@@ -168,11 +175,35 @@ exports.updateEmployee = async (req, res) => {
       sanitize(email),
       sanitize(phone),
       sanitize(department_id),
-      sanitize(role),
+      sanitize(hire_date),
+      sanitize(location),
       employeeId
     ];
 
     await conn.execute(updateEmployeeQuery, employeeValues);
+
+    // Update role
+    if (role) {
+      const [roleResult] = await conn.execute(
+        'SELECT id FROM roles WHERE role_name = ?',
+        [role]
+      );
+      if (!roleResult.length) {
+        throw new Error(`Invalid role: ${role}`);
+      }
+      const roleId = roleResult[0].id;
+
+      // First remove old role
+      await conn.execute(
+        'DELETE FROM employee_roles WHERE employee_id = ?',
+        [employeeId]
+      );
+      // Insert new role
+      await conn.execute(
+        'INSERT INTO employee_roles (employee_id, role_id) VALUES (?, ?)',
+        [employeeId, roleId]
+      );
+    }
 
     // Update salary if new data is provided
     const [existingSalary] = await conn.execute(
@@ -181,45 +212,40 @@ exports.updateEmployee = async (req, res) => {
     );
 
     if (existingSalary.length > 0) {
-      // Update existing salary slip
-      const updateSalaryQuery = `
-        UPDATE salary_slips
-        SET amount = ?
-        WHERE employee_id = ? AND month = ? AND year = ?
-      `;
-      const salaryValues = [
-        sanitize(salaryAmount),
-        employeeId,
-        sanitize(salaryMonth),
-        sanitize(salaryYear)
-      ];
-      await conn.execute(updateSalaryQuery, salaryValues);
+      await conn.execute(
+        `UPDATE salary_slips
+         SET amount = ?
+         WHERE employee_id = ? AND month = ? AND year = ?`,
+        [
+          sanitize(salaryAmount),
+          employeeId,
+          sanitize(salaryMonth),
+          sanitize(salaryYear)
+        ]
+      );
     } else if (salaryAmount && salaryMonth && salaryYear) {
-      // Insert new salary slip if no existing data found
-      const insertSalaryQuery = `
-        INSERT INTO salary_slips (employee_id, amount, month, year)
-        VALUES (?, ?, ?, ?)
-      `;
-      const salaryValues = [
-        employeeId,
-        sanitize(salaryAmount),
-        sanitize(salaryMonth),
-        sanitize(salaryYear)
-      ];
-      await conn.execute(insertSalaryQuery, salaryValues);
+      await conn.execute(
+        `INSERT INTO salary_slips (employee_id, amount, month, year)
+         VALUES (?, ?, ?, ?)`,
+        [
+          employeeId,
+          sanitize(salaryAmount),
+          sanitize(salaryMonth),
+          sanitize(salaryYear)
+        ]
+      );
     }
 
-    // Commit transaction
     await conn.commit();
 
     res.json({ message: 'Employee updated successfully!' });
   } catch (err) {
-    // Rollback transaction in case of an error
     await conn.rollback();
     console.error('Error updating employee:', err);
     res.status(500).json({ message: 'Failed to update employee' });
   }
 };
+
 
 // TOGGLE status
 exports.toggleEmployeeStatus = async (req, res) => {
@@ -248,14 +274,14 @@ exports.getProfile = async (req, res) => {
   const { id } = req.user;
   try {
     const [rows] = await db.query(`
-      SELECT e.*, d.name AS department_name, r.role_name AS role
+      SELECT e.*, d.name AS department_name, r.role_name AS role, e.hire_date, e.location
       FROM employees e
       JOIN departments d ON e.department_id = d.id
       LEFT JOIN employee_roles er ON e.id = er.employee_id
       LEFT JOIN roles r ON er.role_id = r.id
       WHERE e.id = ?
     `, [id]);
-    
+
     if (rows.length === 0) {
       return res.status(404).json({ error: 'Employee not found' });
     }
