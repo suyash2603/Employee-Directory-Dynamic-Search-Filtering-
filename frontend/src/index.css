@@ -1,0 +1,32 @@
+.captcha-box {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  
+  .captcha-display {
+    background-color: #f7f7f7;
+    border: 1px solid #ccc;
+    font-size: 18px;
+    font-weight: bold;
+    width: 150px;  /* Adjust the width */
+    text-align: center;
+  }
+  
+  .captcha-text {
+    margin: 0;
+    color: #333;
+  }
+  
+  .refresh-icon {
+    cursor: pointer;
+    padding: 8px;
+    background-color: #f0f0f0;
+    border-radius: 50%;
+    transition: background-color 0.3s;
+  }
+  
+  .refresh-icon:hover {
+    background-color: #e0e0e0;
+  }
+  
