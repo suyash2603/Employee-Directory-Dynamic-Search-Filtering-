@@ -112,7 +112,9 @@ INSERT INTO departments (name) VALUES
 
 select * from departments;
 
-
+ALTER TABLE employees
+ADD COLUMN hire_date DATE,
+ADD COLUMN location VARCHAR(100);
 ALTER TABLE employees
 MODIFY COLUMN id INT NOT NULL AUTO_INCREMENT;
 select * from employees;
